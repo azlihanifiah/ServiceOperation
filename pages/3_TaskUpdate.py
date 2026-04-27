@@ -76,7 +76,7 @@ def save_images(images, job_id: str, image_type: str) -> str:
         filename = f"{i+1}{ext}"
         
         # Upload to GCS
-        image_bytes = img.getbuffer()
+        image_bytes = img.getbuffer().tobytes()
         path = upload_image(image_bytes, job_id, image_type, filename)
         
         if path:
