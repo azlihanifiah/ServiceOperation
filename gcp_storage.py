@@ -35,15 +35,30 @@ REMOTE_IMAGES_PREFIX = "images"
 def get_gcs_client():
     """Initialize and cache Google Cloud Storage client"""
     try:
-        if not GCP_KEY_PATH.exists():
-            st.error(f"❌ GCP key not found at {GCP_KEY_PATH}")
-            st.stop()
+        # Try to load from file first (local development)
+        if GCP_KEY_PATH.exists():
+            credentials = service_account.Credentials.from_service_account_file(
+                str(GCP_KEY_PATH)
+            )
+            client = storage.Client(credentials=credentials)
+            return client
         
-        credentials = service_account.Credentials.from_service_account_file(
-            str(GCP_KEY_PATH)
-        )
-        client = storage.Client(credentials=credentials)
-        return client
+        # Fall back to Streamlit secrets (Streamlit Cloud)
+        try:
+            import json
+            secret_dict = st.secrets.get("gcp_service_account")
+            if secret_dict:
+                credentials = service_account.Credentials.from_service_account_info(secret_dict)
+                client = storage.Client(credentials=credentials)
+                return client
+        except Exception:
+            pass
+        
+        # If neither method works, show error
+        st.error(f"❌ GCP credentials not found")
+        st.error("Please add GCP service account to Streamlit secrets or config/gcp-key.json")
+        st.stop()
+        
     except Exception as e:
         st.error(f"❌ Failed to initialize GCS client: {e}")
         st.stop()
