@@ -1,31 +1,152 @@
+"""
+Utility functions for Streamlit Task Report application
+Streamlined version - only essential functions for GCS-based task reporting
+"""
 import streamlit as st
-import pandas as pd
-import sqlite3
-from pathlib import Path
 from datetime import datetime, date, timedelta, timezone
 from functools import lru_cache
-from typing import Optional
-import hashlib
-import re
-import json
-import os
-import subprocess
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import traceback
+from typing import Optional, Dict, Any
 
 try:
-    from zoneinfo import ZoneInfo  # py3.9+
-except Exception:  # pragma: no cover
-    ZoneInfo = None  # type: ignore[assignment]
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
+
 
 # ======================================
-# CONSTANTS
+# SINGAPORE TIMEZONE
 # ======================================
-# Single source of truth DB
-APP_ROOT = Path(__file__).resolve().parent
+DEFAULT_TZ = "Asia/Singapore"
+
+
+@lru_cache(maxsize=1)
+def _get_tz_info():
+    """Get Singapore timezone info"""
+    if ZoneInfo:
+        try:
+            return ZoneInfo(DEFAULT_TZ)
+        except:
+            pass
+    # Fallback: UTC+8 fixed offset (Singapore is UTC+8, no DST)
+    return timezone(timedelta(hours=8))
+
+
+def now_sg() -> datetime:
+    """Current datetime in Singapore"""
+    return datetime.now(_get_tz_info())
+
+
+def today_sg() -> date:
+    """Current date in Singapore"""
+    return now_sg().date()
+
+
+def format_ts_sg(dt: datetime = None, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """Format datetime as string"""
+    if dt is None:
+        dt = now_sg()
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_get_tz_info())
+        else:
+            dt = dt.astimezone(_get_tz_info())
+        return dt.strftime(fmt)
+    except:
+        return str(dt)
+
+
+# ======================================
+# AUTHENTICATION
+# ======================================
+def require_login(min_level_rank: int = 1) -> Dict[str, Any]:
+    """
+    Require user to be logged in and have minimum rank
+    
+    Rank levels:
+    1 = Operator (view dashboards)
+    2 = Technician (create and update tasks)
+    3 = Manager (review and download reports)
+    """
+    # Check query params for user
+    query_params = st.query_params
+    user_id = query_params.get("user", "") or "default_user"
+    
+    # Return user info
+    auth = {
+        "user_id": user_id,
+        "name": user_id.title(),
+        "rank": min_level_rank
+    }
+    
+    # In production, add actual authentication here
+    return auth
+
+
+def render_role_navigation(auth: Dict[str, Any]) -> None:
+    """Display navigation menu based on user role"""
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"👤 **{auth.get('name', 'User')}**")
+    st.sidebar.markdown(f"📊 Rank: {auth.get('rank', 1)}")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📄 Navigation")
+    
+    rank = auth.get("rank", 1)
+    
+    if rank >= 1:
+        st.sidebar.page_link("Home.py", label="🏠 Dashboard")
+    if rank >= 2:
+        st.sidebar.page_link("pages/3_TaskUpdate.py", label="🔧 Task Update")
+    if rank >= 3:
+        st.sidebar.page_link("pages/2_MasterUser.py", label="📋 Review Reports")
+
+
+# ======================================
+# ERROR HANDLING
+# ======================================
+def show_user_error(message: str) -> None:
+    """Display user-friendly error message"""
+    try:
+        st.warning(f"⚠️ {str(message or '').strip()}")
+    except:
+        pass
+
+
+def show_system_error(message: str, err: Exception = None) -> None:
+    """Display system error message with optional details"""
+    try:
+        st.error(f"❌ {str(message or '').strip()}")
+        if err:
+            with st.expander("Error Details"):
+                st.code(str(err))
+    except:
+        pass
+
+
+# ======================================
+# VALIDATION
+# ======================================
+def require_text(value: str, field_name: str) -> str:
+    """Validate non-empty text"""
+    s = str(value or "").strip()
+    if not s:
+        raise ValueError(f"{field_name} is required")
+    return s
+
+
+def require_int(value: str, field_name: str, min_val: int = None, max_val: int = None) -> int:
+    """Validate integer with optional min/max"""
+    s = str(value or "").strip()
+    if not s:
+        raise ValueError(f"{field_name} is required")
+    try:
+        n = int(float(s))
+    except:
+        raise ValueError(f"{field_name} must be a number")
+    if min_val is not None and n < min_val:
+        raise ValueError(f"{field_name} must be >= {min_val}")
+    if max_val is not None and n > max_val:
+        raise ValueError(f"{field_name} must be <= {max_val}")
+    return n
 DATA_DIR = APP_ROOT / "data"
 MAIN_DB_FILE = DATA_DIR / "main_data.db"
 

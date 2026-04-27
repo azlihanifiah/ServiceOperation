@@ -1,103 +1,75 @@
-# Home.py
-
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import re
-from utils import load_existing_data, load_task_table, login_sidebar, render_role_navigation, show_system_error
+from utils import require_login, render_role_navigation
+from gcp_storage import download_database
 
-st.set_page_config(page_title="ME Dashboard", page_icon="📊", layout="wide")
-auth = login_sidebar(required=False)
+st.set_page_config(page_title="Maintenance Dashboard", page_icon="🏠", layout="wide")
+
+# Require login
+auth = require_login(min_level_rank=1)
 render_role_navigation(auth)
-st.title("📊 ME Asset List")
 
-# ======================================
-#   LOAD DATA (ASSET) from main_data.db
-# ======================================
-df = load_existing_data()
-if df is None or df.empty:
-    st.error("❌ No asset data found in main_data.db.")
-    st.stop()
-    raise SystemExit
-
-# ======================================
-#   FILTER DATA BY STATUS
-# ======================================
-statuses = ["Good", "Idle", "NG", "Expired", "Expired Soon", "Obsolete"]
-
-if "Status" in df.columns:
-    df_filter = df[df["Status"].isin(statuses)]
-else:
-    st.warning("⚠️ Column 'Status' not found. Using entire dataset.")
-    df_filter = df.copy()
-
-# ======================================
-#   ASSET ANALYSIS (SIDE-BY-SIDE)
-# ======================================
-st.markdown("## 📦 Asset Analysis")
-
-col_left, col_right = st.columns(2)
-
-with col_left:
-    if "Type" in df.columns:
-        type_count = df["Type"].value_counts().reset_index()
-        type_count.columns = ["Type", "Count"]
-
-        fig_type = px.pie(
-            type_count,
-            names="Type",
-            values="Count",
-            title="Type of Asset",
-        )
-        st.plotly_chart(fig_type, use_container_width=True)
-    else:
-        st.warning("⚠️ Column 'Type' not found.")
-
-with col_right:
-    if "Status" in df.columns:
-        status_count = df["Status"].value_counts().reset_index()
-        status_count.columns = ["Status", "Count"]
-
-        fig_status = px.bar(
-            status_count,
-            x="Status",
-            y="Count",
-            title="Asset Status",
-            text="Count",
-            color="Status",
-        )
-        st.plotly_chart(fig_status, use_container_width=True)
-    else:
-        st.warning("⚠️ Column 'Status' not found.")
-
-# ======================================
-#   EQUIPMENT QUANTITY SUMMARY
-# ======================================
-if "Description of Asset" in df_filter.columns:
-    Eq_Quantity = (
-        df_filter["Description of Asset"]
-        .value_counts()
-        .rename_axis("Description of Asset")
-        .reset_index(name="Quantity")
-        .sort_values(by="Description of Asset")
-        .reset_index(drop=True)
-    )
-else:
-    st.error("❌ Column 'Description of Asset' not found.")
-    st.stop()
-    raise SystemExit
-
-st.markdown("### Asset Quantity Summary")
-st.dataframe(Eq_Quantity, use_container_width=True, hide_index=True)
-
-# ======================================
-#   TASK REPORT ANALYSIS
-# ======================================
+st.title("🏠 Maintenance Dashboard")
 st.markdown("---")
-st.markdown("## 🛠️ Task Report Analysis")
 
+# ======================================
+# Load Task Reports from Google Cloud
+# ======================================
 try:
-    tdf = load_task_table()
+    df = download_database()
+    
+    if df is None or df.empty:
+        st.warning("📭 No task reports yet")
+    else:
+        # Get task statistics
+        pending_count = 0
+        in_progress_count = 0
+        completed_count = 0
+        
+        if "Job Status" in df.columns:
+            pending_count = len(df[df["Job Status"] == "Pending"])
+            in_progress_count = len(df[df["Job Status"] == "In Progress"])
+            completed_count = len(df[df["Job Status"] == "Completed"])
+        
+        # Display statistics in 3 columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("⏳ Pending Tasks", pending_count)
+        
+        with col2:
+            st.metric("🔄 In Progress", in_progress_count)
+        
+        with col3:
+            st.metric("✅ Completed", completed_count)
+        
+        st.markdown("---")
+        
+        # Show recent tasks
+        st.markdown("## 📋 Recent Tasks")
+        
+        if len(df) > 0:
+            # Get latest 10 tasks
+            recent_df = df.sort_values(
+                by="Create at" if "Create at" in df.columns else df.columns[0],
+                ascending=False
+            ).head(10)
+            
+            # Select columns to display
+            display_cols = [col for col in ["Job ID", "Job Type", "Job Status", "Severity", "Create at"] 
+                           if col in recent_df.columns]
+            
+            st.dataframe(
+                recent_df[display_cols],
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            st.markdown(f"Showing latest 10 of {len(df)} total tasks")
+
+except Exception as e:
+    st.error(f"❌ Error loading task reports: {e}")
+    st.info("Make sure Google Cloud Storage is properly configured")
 
     if tdf is None or tdf.empty:
         st.info("No task report data found yet.")
