@@ -8,3 +8,4 @@ python-multipart
 opencv-python-headless
 reportlab
 pyPDF2
+google-cloud-storage

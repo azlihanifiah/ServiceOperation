@@ -1447,8 +1447,7 @@ def _safe_parse_date_any(value) -> Optional[date]:
 def recompute_asset_derived_fields(df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
     """Recompute best-effort derived fields: Due Date (when missing), Day Left, Status.
 
-    This fixes stale rows where Status/Day Left no longer match the rules.
-    The rules mirror `pages/2_AssetEditor.py`:
+    This fixes stale rows where Status/Day Left no longer match the rules:
     1) Functional Location == Obsolete -> Status = Obsolete
     2) Day Left <= 0 -> Expired
     3) Day Left < 7 -> Expired Soon
@@ -1974,29 +1973,25 @@ def render_role_navigation(auth: dict | None = None) -> None:
         rank = 0
 
     # Visible pages per role:
-    # - Guest: Home + Asset Catalogue
-    # - Viewer: Page 1, 2, 5 (+ Home)
+    # - Guest: Home only
+    # - Viewer: Task Update (+ Home)
     # - User/SuperUser/MasterUser: all pages
     # - MasterUser: also Page 6
     pages: list[tuple[str, str, int]] = [
         ("🏠 Home", "Home.py", 0),
-        ("📘 Asset Catalogue", "pages/1_AssetCatalogue.py", 0),
     ]
 
     if ok:
         pages.extend(
             [
-                ("📝 Asset Editor", "pages/2_AssetEditor.py", 2),
-                ("🔧 Task Update", "pages/3_TaskUpdate.py", 2),
-                ("🏭 Workshop Inventory", "pages/4_WorkshopInventory.py", 2),
-                ("🛠️ Maintenance Request", "pages/5_MaintenanceRequest.py", 1),
+                ("� Task Update", "pages/3_TaskUpdate.py", 2),
                 ("👑 MasterUser Editor", "pages/6_MasterUserEditor.py", 4),
             ]
         )
 
-    # Viewer restriction: only show pages 1,5 (plus Home)
+    # Viewer restriction: only show Task Update (plus Home)
     if ok and rank == 1:
-        allowed = {"Home.py", "pages/1_AssetCatalogue.py", "pages/5_MaintenanceRequest.py"}
+        allowed = {"Home.py", "pages/3_TaskUpdate.py"}
         pages = [p for p in pages if p[1] in allowed]
 
     st.sidebar.markdown("---")
