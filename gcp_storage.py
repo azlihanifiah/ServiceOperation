@@ -87,18 +87,23 @@ def download_database():
         # Download to bytes
         db_bytes = blob.download_as_bytes()
         
-        # Load into SQLite in memory
-        conn = sqlite3.connect(":memory:")
-        conn.executescript(db_bytes.decode() if isinstance(db_bytes, bytes) else db_bytes)
+        # Write bytes to temporary file and open with sqlite3
+        temp_db_path = Path("/tmp/task_reports_temp.db")
+        temp_db_path.write_bytes(db_bytes)
+        
+        # Open the database file
+        conn = sqlite3.connect(str(temp_db_path))
         
         # Read data into DataFrame
         try:
             df = pd.read_sql_query('SELECT * FROM task_reports', conn)
             conn.close()
+            temp_db_path.unlink(missing_ok=True)  # Clean up temp file
             return df
         except Exception:
             # Table might not exist yet
             conn.close()
+            temp_db_path.unlink(missing_ok=True)  # Clean up temp file
             return pd.DataFrame()
             
     except Exception as e:
