@@ -185,6 +185,30 @@ def list_images_for_job(job_id: str) -> list:
         return []
 
 
+def list_uploaded_data(prefix: str = "") -> list:
+    """List uploaded objects in bucket for reporting/audit."""
+    try:
+        bucket = get_bucket()
+        effective_prefix = prefix or ""
+        blobs = bucket.list_blobs(prefix=effective_prefix)
+        results = []
+        for blob in blobs:
+            if blob.name.endswith("/"):
+                continue
+            results.append(
+                {
+                    "Path": blob.name,
+                    "Size (KB)": round((blob.size or 0) / 1024, 2),
+                    "Updated": str(blob.updated) if blob.updated else "",
+                    "Content Type": blob.content_type or "",
+                }
+            )
+        return results
+    except Exception as e:
+        st.error(f"❌ Failed to list uploaded data: {e}")
+        return []
+
+
 # ======================================
 # Backup Operations
 # ======================================

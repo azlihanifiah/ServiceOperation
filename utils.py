@@ -67,24 +67,106 @@ def format_ts_sg(dt: datetime = None, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
 # ======================================
 # AUTHENTICATION
 # ======================================
+def _clear_auth_state() -> None:
+    st.session_state["is_logged_in"] = False
+    st.session_state["auth_user"] = None
+
+
+def _render_login_form(min_level_rank: int) -> None:
+    st.warning("Login required to access this page.")
+    with st.form("login_form"):
+        user_id = st.text_input("User ID")
+        submitted = st.form_submit_button("Login")
+    if submitted:
+        user_id = str(user_id or "").strip()
+        if not user_id:
+            st.error("User ID is required")
+            return
+        user_info = lookup_user_in_regdata(user_id)
+        if not user_info.get("ok", False):
+            st.error("Unable to verify user")
+            return
+        user_rank = int(user_info.get("level_rank", 1) or 1)
+        if user_rank < min_level_rank:
+            st.error(f"Access denied. This page requires rank {min_level_rank} or above.")
+            return
+        st.session_state["is_logged_in"] = True
+        st.session_state["auth_user"] = {
+            "user_id": user_info.get("user_id", user_id),
+            "name": user_info.get("display_name", user_id.title()),
+            "rank": user_rank,
+        }
+        st.success("Login successful")
+        st.rerun()
+
+
 def require_login(min_level_rank: int = 1) -> Dict[str, Any]:
     """
-    Require user to be logged in and have minimum rank
-    
-    Rank levels:
-    1 = Operator (view dashboards)
-    2 = Technician (create and update tasks)
-    3 = Manager (review and download reports)
+    Require user to be logged in and have minimum rank.
     """
-    query_params = st.query_params
-    user_id = query_params.get("user", "") or "demo_user"
-    
-    auth = {
-        "user_id": user_id,
-        "name": user_id.title(),
-        "rank": min_level_rank
-    }
+    if "is_logged_in" not in st.session_state:
+        _clear_auth_state()
+
+    auth = st.session_state.get("auth_user") or {}
+    if not st.session_state.get("is_logged_in") or not auth:
+        _render_login_form(min_level_rank)
+        st.stop()
+
+    user_rank = int(auth.get("rank", 1) or 1)
+    if user_rank < min_level_rank:
+        st.error(f"Access denied. This page requires rank {min_level_rank} or above.")
+        st.stop()
     return auth
+
+
+def get_auth_user(optional: bool = True) -> Optional[Dict[str, Any]]:
+    """Return authenticated user from session without forcing login."""
+    auth = st.session_state.get("auth_user")
+    if st.session_state.get("is_logged_in") and auth:
+        return auth
+    return None if optional else {}
+
+
+def render_home_auth_controls() -> Optional[Dict[str, Any]]:
+    """
+    Home page auth controls:
+    - Home page remains accessible without login.
+    - Users can login/logout here to access edit pages.
+    """
+    auth = get_auth_user(optional=True)
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Account")
+
+    if auth:
+        st.sidebar.success(f"Logged in: {auth.get('name', 'User')}")
+        st.sidebar.caption(f"Rank: {auth.get('rank', 1)}")
+        if st.sidebar.button("Logout"):
+            _clear_auth_state()
+            st.rerun()
+        return auth
+
+    with st.sidebar.form("home_login_form"):
+        user_id = st.text_input("User ID", key="home_login_user_id")
+        submitted = st.form_submit_button("Login for edit pages")
+    if submitted:
+        user_id = str(user_id or "").strip()
+        if not user_id:
+            st.sidebar.error("User ID is required")
+        else:
+            user_info = lookup_user_in_regdata(user_id)
+            if not user_info.get("ok", False):
+                st.sidebar.error("Unable to verify user")
+            else:
+                st.session_state["is_logged_in"] = True
+                st.session_state["auth_user"] = {
+                    "user_id": user_info.get("user_id", user_id),
+                    "name": user_info.get("display_name", user_id.title()),
+                    "rank": int(user_info.get("level_rank", 1) or 1),
+                }
+                st.sidebar.success("Login successful")
+                st.rerun()
+    st.sidebar.info("You can view Home without login. Login is required for edit pages.")
+    return None
 
 
 def render_role_navigation(auth: Dict[str, Any]) -> None:
@@ -100,7 +182,7 @@ def render_role_navigation(auth: Dict[str, Any]) -> None:
     if rank >= 1:
         st.sidebar.page_link("Home.py", label="?? Dashboard")
     if rank >= 2:
-        st.sidebar.page_link("pages/3_TaskUpdate.py", label="?? Task Update")
+        st.sidebar.page_link("pages/1_TaskUpdate.py", label="?? Task Update")
     if rank >= 3:
         st.sidebar.page_link("pages/2_MasterUser.py", label="?? Review Reports")
 
