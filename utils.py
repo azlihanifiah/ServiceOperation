@@ -172,19 +172,19 @@ def render_home_auth_controls() -> Optional[Dict[str, Any]]:
 def render_role_navigation(auth: Dict[str, Any]) -> None:
     """Display navigation menu based on user role"""
     st.sidebar.markdown("---")
-    st.sidebar.markdown(f"?? **{auth.get('name', 'User')}**")
-    st.sidebar.markdown(f"?? Rank: {auth.get('rank', 1)}")
+    st.sidebar.markdown(f"**{auth.get('name', 'User')}**")
+    st.sidebar.markdown(f" Rank: {auth.get('rank', 1)}")
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### ?? Navigation")
+    st.sidebar.markdown("### 🧭 Navigation")
     
     rank = auth.get("rank", 1)
     
     if rank >= 1:
         st.sidebar.page_link("Home.py", label="?? Dashboard")
     if rank >= 2:
-        st.sidebar.page_link("pages/1_TaskUpdate.py", label="?? Task Update")
+        st.sidebar.page_link("pages/1_TaskUpdate.py", label="Task Update")
     if rank >= 3:
-        st.sidebar.page_link("pages/2_MasterUser.py", label="?? Review Reports")
+        st.sidebar.page_link("pages/2_MasterUser.py", label=" Review Reports")
 
 
 # ======================================
@@ -193,7 +193,7 @@ def render_role_navigation(auth: Dict[str, Any]) -> None:
 def show_user_error(message: str) -> None:
     """Display user-friendly error message"""
     try:
-        st.warning(f"?? {str(message or '').strip()}")
+        st.warning(f" {str(message or '').strip()}")
     except:
         pass
 
@@ -201,7 +201,7 @@ def show_user_error(message: str) -> None:
 def show_system_error(message: str, err: Exception = None) -> None:
     """Display system error message with optional details"""
     try:
-        st.error(f"? {str(message or '').strip()}")
+        st.error(f" {str(message or '').strip()}")
         if err:
             with st.expander("Error Details"):
                 st.code(str(err))
