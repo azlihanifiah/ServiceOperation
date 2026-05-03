@@ -262,17 +262,65 @@ def lookup_user_in_regdata(user_id: str) -> Dict[str, Any]:
             }
         
         conn = sqlite3.connect(str(REGDATA_DB))
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         
         try:
-            cur.execute('SELECT * FROM RegData WHERE UserID = ? OR user_id = ?', (user_id, user_id))
+            cur.execute("PRAGMA table_info('RegData')")
+            reg_cols = [str(r[1]).strip() for r in (cur.fetchall() or [])]
+            reg_cols_lower = {c.lower() for c in reg_cols}
+
+            # Detect user-id column dynamically (schema may differ between environments)
+            user_col = None
+            for candidate in ("userID", "UserID", "user_id", "userid", "UserId"):
+                if candidate.lower() in reg_cols_lower:
+                    user_col = candidate
+                    break
+
+            if not user_col:
+                return {
+                    "ok": False,
+                    "user_id": user_id,
+                    "display_name": user_id.title(),
+                    "level_rank": 1,
+                    "error": "RegData user column not found",
+                }
+
+            cur.execute(f"SELECT * FROM RegData WHERE {user_col} = ? LIMIT 1", (user_id,))
             row = cur.fetchone()
             if row:
+                row_dict = {k.lower(): row[k] for k in row.keys()}
+                display_name = (
+                    row_dict.get("name")
+                    or row_dict.get("display_name")
+                    or row_dict.get("fullname")
+                    or user_id.title()
+                )
+
+                # Classification rules:
+                # - MasterUser => full clearance (rank 3)
+                # - User Level => TaskUpdate + Home (rank 2)
+                # - fallback => Home only (rank 1)
+                role_raw = str(
+                    row_dict.get("classification")
+                    or row_dict.get("level")
+                    or row_dict.get("userlevel")
+                    or row_dict.get("role")
+                    or ""
+                ).strip().lower()
+
+                if role_raw in ("masteruser", "master user", "admin", "administrator", "manager"):
+                    level_rank = 3
+                elif role_raw in ("user level", "userlevel", "user", "technician", "operator"):
+                    level_rank = 2
+                else:
+                    level_rank = 2
+
                 return {
                     "ok": True,
                     "user_id": user_id,
-                    "display_name": user_id.title(),
-                    "level_rank": 2
+                    "display_name": str(display_name).strip() or user_id.title(),
+                    "level_rank": level_rank
                 }
         except:
             pass
