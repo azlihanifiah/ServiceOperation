@@ -229,6 +229,8 @@ if after_images:
 # SAVE BUTTON
 # ======================================
 if st.button("💾 Save Task Report", type="primary"):
+    before_count = len(before_images) if before_images else 0
+    after_count = len(after_images) if after_images else 0
     # Validation
     if not job_type:
         show_user_error("Job Type is required")
@@ -242,9 +244,9 @@ if st.button("💾 Save Task Report", type="primary"):
         show_user_error("Action is required")
     elif not verify_by:
         show_user_error("Verify by is required")
-    elif len(before_images) < 4:
+    elif before_count < 4:
         show_user_error("Minimum 4 before images required")
-    elif len(after_images) < 4:
+    elif after_count < 4:
         show_user_error("Minimum 4 after images required")
     else:
         # Upload images
