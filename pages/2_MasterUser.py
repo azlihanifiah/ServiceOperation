@@ -13,6 +13,60 @@ render_role_navigation(auth)
 st.title("📋 Review & Download Reports")
 st.markdown("---")
 
+
+def _priority_score(value: str) -> int:
+    text = str(value or "").strip().lower()
+    mapping = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+    return mapping.get(text, 0)
+
+
+def _status_score(value: str) -> int:
+    text = str(value or "").strip().lower()
+    mapping = {"pending": 3, "in progress": 2, "completed": 1}
+    return mapping.get(text, 0)
+
+
+def _sorted_task_view(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a readable task view for Master User."""
+    view_df = df.copy()
+    if "Create at" in view_df.columns:
+        view_df["__create_at_sort"] = pd.to_datetime(view_df["Create at"], errors="coerce")
+    else:
+        view_df["__create_at_sort"] = pd.NaT
+
+    if "Priority" in view_df.columns:
+        view_df["__priority_sort"] = view_df["Priority"].map(_priority_score)
+    else:
+        view_df["__priority_sort"] = 0
+
+    if "Job Status" in view_df.columns:
+        view_df["__status_sort"] = view_df["Job Status"].map(_status_score)
+    else:
+        view_df["__status_sort"] = 0
+
+    view_df = view_df.sort_values(
+        by=["__status_sort", "__priority_sort", "__create_at_sort"],
+        ascending=[False, False, False],
+        na_position="last",
+    )
+
+    key_columns = [
+        "Job ID",
+        "Create at",
+        "Job Status",
+        "Priority",
+        "Severity",
+        "Job Type",
+        "Location",
+        "Assign by",
+        "Create By",
+        "Machine ID",
+        "Task Description",
+    ]
+    ordered_columns = [c for c in key_columns if c in view_df.columns]
+    remaining_columns = [c for c in view_df.columns if c not in ordered_columns and not c.startswith("__")]
+    return view_df[ordered_columns + remaining_columns]
+
 # ======================================
 # LOAD TASK DATA
 # ======================================
@@ -22,17 +76,20 @@ try:
     if df is None or df.empty:
         st.info("📭 No task reports available")
     else:
+        readable_df = _sorted_task_view(df)
+
         # ======================================
         # TABS FOR FILTERING
         # ======================================
         tab1, tab2, tab3 = st.tabs(["All Reports", "Filter by Status", "Search"])
         
         with tab1:
-            st.markdown("### All Task Reports")
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.markdown("### All Task Reports (Readable Order)")
+            st.caption("Sorted by status, priority, then latest created time.")
+            st.dataframe(readable_df, use_container_width=True, hide_index=True)
             
             # Download full database as CSV
-            csv = df.to_csv(index=False)
+            csv = readable_df.to_csv(index=False)
             st.download_button(
                 label="📥 Download All Reports (CSV)",
                 data=csv,
@@ -43,15 +100,20 @@ try:
         with tab2:
             st.markdown("### Filter by Job Status")
             
+            status_options = ["All"]
+            if "Job Status" in readable_df.columns:
+                unique_statuses = [s for s in readable_df["Job Status"].dropna().astype(str).unique().tolist() if s]
+                status_options += sorted(unique_statuses)
+
             status_filter = st.selectbox(
                 "Select Status",
-                ["All"] + df["Job Status"].unique().tolist() if "Job Status" in df.columns else ["All"]
+                status_options
             )
             
             if status_filter == "All":
-                filtered_df = df
+                filtered_df = readable_df
             else:
-                filtered_df = df[df["Job Status"] == status_filter]
+                filtered_df = readable_df[readable_df["Job Status"] == status_filter]
             
             st.markdown(f"**Found {len(filtered_df)} report(s)**")
             st.dataframe(filtered_df, use_container_width=True, hide_index=True)
@@ -70,14 +132,14 @@ try:
             
             search_col = st.selectbox(
                 "Search by field",
-                df.columns.tolist() if df is not None and not df.empty else []
+                readable_df.columns.tolist() if readable_df is not None and not readable_df.empty else []
             )
             
             search_term = st.text_input(f"Enter search term for {search_col}")
             
             if search_term:
-                if search_col in df.columns:
-                    search_df = df[df[search_col].astype(str).str.contains(search_term, case=False, na=False)]
+                if search_col in readable_df.columns:
+                    search_df = readable_df[readable_df[search_col].astype(str).str.contains(search_term, case=False, na=False)]
                     st.markdown(f"**Found {len(search_df)} report(s)**")
                     st.dataframe(search_df, use_container_width=True, hide_index=True)
                     
@@ -134,7 +196,7 @@ try:
         
         with col1:
             # Export as CSV
-            csv = df.to_csv(index=False)
+            csv = readable_df.to_csv(index=False)
             st.download_button(
                 label="📥 Export as CSV",
                 data=csv,
@@ -146,7 +208,7 @@ try:
             # Export as Excel
             excel_buffer = BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Task Reports', index=False)
+                readable_df.to_excel(writer, sheet_name='Task Reports', index=False)
             excel_buffer.seek(0)
             
             st.download_button(
@@ -166,6 +228,10 @@ try:
             st.info("No uploaded files found in storage.")
         else:
             uploaded_df = pd.DataFrame(uploaded_objects)
+            if "Updated" in uploaded_df.columns:
+                uploaded_df["__updated_sort"] = pd.to_datetime(uploaded_df["Updated"], errors="coerce")
+                uploaded_df = uploaded_df.sort_values(by="__updated_sort", ascending=False, na_position="last")
+                uploaded_df = uploaded_df.drop(columns=["__updated_sort"])
             st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
             upload_csv = uploaded_df.to_csv(index=False)
             st.download_button(
