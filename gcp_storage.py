@@ -363,3 +363,215 @@ def sync_regdata_from_gcs(local_path: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+# ======================================
+# Job Tasks Database Operations (New Schema)
+# ======================================
+def download_job_tasks_database() -> pd.DataFrame:
+    """Download job tasks from database"""
+    try:
+        bucket = get_bucket()
+        blob = bucket.blob(REMOTE_DB_PATH)
+        
+        if not blob.exists():
+            return pd.DataFrame()
+        
+        # Download and read
+        db_bytes = blob.download_as_bytes()
+        temp_db_path = Path("/tmp/job_tasks_temp.db")
+        temp_db_path.write_bytes(db_bytes)
+        
+        conn = sqlite3.connect(str(temp_db_path))
+        
+        try:
+            df = pd.read_sql_query('SELECT * FROM job_tasks', conn)
+            conn.close()
+            temp_db_path.unlink(missing_ok=True)
+            return df
+        except Exception:
+            conn.close()
+            temp_db_path.unlink(missing_ok=True)
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"❌ Failed to download job tasks: {e}")
+        return pd.DataFrame()
+
+
+def save_job_task(job_data: dict, spare_parts: list = None) -> bool:
+    """
+    Save a new job task and its spare parts to database
+    
+    Args:
+        job_data: Dictionary with job information
+        spare_parts: List of spare parts (each as dict with item_name and quantity)
+    
+    Returns:
+        bool: True if successful
+    """
+    try:
+        # Download existing data
+        df_jobs = download_job_tasks_database()
+        
+        # Convert job_data to DataFrame
+        new_job_df = pd.DataFrame([job_data])
+        
+        # Append to existing
+        if df_jobs.empty:
+            df_jobs = new_job_df
+        else:
+            df_jobs = pd.concat([df_jobs, new_job_df], ignore_index=True)
+        
+        # Upload to GCS
+        bucket = get_bucket()
+        blob = bucket.blob(REMOTE_DB_PATH)
+        
+        temp_db_path = Path("/tmp/job_tasks_temp.db")
+        conn = sqlite3.connect(str(temp_db_path))
+        
+        # Create job_tasks table
+        df_jobs.to_sql('job_tasks', conn, if_exists='replace', index=False)
+        
+        # Save spare parts if provided
+        if spare_parts:
+            spare_parts_data = []
+            for spare in spare_parts:
+                spare_record = {
+                    "job_id": job_data.get("job_id"),
+                    "item_name": spare.get("item_name"),
+                    "quantity": spare.get("quantity"),
+                    "created_at": job_data.get("created_at")
+                }
+                spare_parts_data.append(spare_record)
+            
+            if spare_parts_data:
+                df_spare = pd.DataFrame(spare_parts_data)
+                df_spare.to_sql('spare_parts', conn, if_exists='append', index=False)
+        
+        conn.commit()
+        conn.close()
+        
+        # Upload to GCS
+        blob.upload_from_filename(str(temp_db_path))
+        temp_db_path.unlink(missing_ok=True)
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Failed to save job task: {e}")
+        return False
+
+
+def get_spare_parts_for_job(job_id: str) -> list:
+    """Get all spare parts for a specific job"""
+    try:
+        bucket = get_bucket()
+        blob = bucket.blob(REMOTE_DB_PATH)
+        
+        if not blob.exists():
+            return []
+        
+        db_bytes = blob.download_as_bytes()
+        temp_db_path = Path("/tmp/spare_parts_temp.db")
+        temp_db_path.write_bytes(db_bytes)
+        
+        conn = sqlite3.connect(str(temp_db_path))
+        
+        try:
+            query = f"SELECT * FROM spare_parts WHERE job_id = '{job_id}'"
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+            temp_db_path.unlink(missing_ok=True)
+            return df.to_dict('records') if not df.empty else []
+        except Exception:
+            conn.close()
+            temp_db_path.unlink(missing_ok=True)
+            return []
+            
+    except Exception as e:
+        st.error(f"❌ Failed to get spare parts: {e}")
+        return []
+
+
+def get_job_task_by_id(job_id: str) -> dict:
+    """Get a specific job task by ID"""
+    try:
+        df = download_job_tasks_database()
+        if df.empty:
+            return {}
+        
+        job = df[df['job_id'] == job_id]
+        if job.empty:
+            return {}
+        
+        return job.iloc[0].to_dict()
+        
+    except Exception as e:
+        st.error(f"❌ Failed to get job task: {e}")
+        return {}
+
+
+def update_job_task_status(job_id: str, new_status: str, verify_by: str = "") -> bool:
+    """Update the status of a job task"""
+    try:
+        df = download_job_tasks_database()
+        if df.empty:
+            return False
+        
+        # Update status
+        df.loc[df['job_id'] == job_id, 'job_status'] = new_status
+        
+        if verify_by:
+            df.loc[df['job_id'] == job_id, 'verify_by'] = verify_by
+        
+        # Update modification timestamp
+        from utils import now_sg
+        df.loc[df['job_id'] == job_id, 'last_modified'] = now_sg()
+        
+        # Save back to GCS
+        bucket = get_bucket()
+        blob = bucket.blob(REMOTE_DB_PATH)
+        
+        temp_db_path = Path("/tmp/job_tasks_temp.db")
+        conn = sqlite3.connect(str(temp_db_path))
+        
+        df.to_sql('job_tasks', conn, if_exists='replace', index=False)
+        conn.close()
+        
+        blob.upload_from_filename(str(temp_db_path))
+        temp_db_path.unlink(missing_ok=True)
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Failed to update job task: {e}")
+        return False
+
+
+def get_jobs_by_status(status: str) -> pd.DataFrame:
+    """Get all jobs with a specific status"""
+    try:
+        df = download_job_tasks_database()
+        if df.empty:
+            return pd.DataFrame()
+        
+        return df[df['job_status'] == status]
+        
+    except Exception as e:
+        st.error(f"❌ Failed to get jobs by status: {e}")
+        return pd.DataFrame()
+
+
+def get_jobs_by_technician(technician: str) -> pd.DataFrame:
+    """Get all jobs assigned to a specific technician"""
+    try:
+        df = download_job_tasks_database()
+        if df.empty:
+            return pd.DataFrame()
+        
+        return df[df['technician'] == technician]
+        
+    except Exception as e:
+        st.error(f"❌ Failed to get jobs by technician: {e}")
+        return pd.DataFrame()
